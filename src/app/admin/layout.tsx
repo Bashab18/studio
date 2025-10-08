@@ -37,6 +37,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { adminNavItems } from '@/config/adminNav';
 
 
 function LoadingSpinner() {
@@ -65,14 +66,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   if (loading || !user || user.role !== 'admin') {
     return <LoadingSpinner />;
   }
-  
-  const navItems = [
-    { href: '/admin', icon: Home, label: 'Dashboard' },
-    { href: '/admin/knowledge', icon: BrainCircuit, label: 'Knowledge Base' },
-    { href: '/admin/history', icon: MessageSquare, label: 'Chat History' },
-    { href: '/admin/users', icon: Users, label: 'User Profiles' },
-    { href: '/admin/settings', icon: Settings, label: 'Settings' },
-  ];
 
   return (
     <SidebarProvider>
@@ -87,7 +80,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </SidebarHeader>
         <SidebarContent>
           <SidebarMenu>
-            {navItems.map((item) => (
+            {adminNavItems.map((item) => (
               <SidebarMenuItem key={item.href}>
                 <Link href={item.href} passHref>
                   <SidebarMenuButton
