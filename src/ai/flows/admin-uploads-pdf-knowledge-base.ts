@@ -78,7 +78,7 @@ export async function rebuildKnowledgeBase(): Promise<RebuildKnowledgeBaseOutput
 
 const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
 const KNOWLEDGE_DOCUMENT_ID = 'main_document';
-const STORAGE_BUCKET = 'm-health-jxug7.appspot.com';
+const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || 'm-health-jxug7.appspot.com';
 
 const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
   {
@@ -201,10 +201,9 @@ const rebuildKnowledgeBaseFlow = ai.defineFlow({
                 }
 
                 const [fileBuffer] = await file.download();
-                const base64Data = fileBuffer.toString('base64');
-
+                
                 const textContent = await googleAI.extractText({
-                  media: { data: base64Data, mimeType: 'application/pdf' },
+                  media: { data: fileBuffer, mimeType: 'application/pdf' },
                 });
                 
                 return `\n\n--- Content from ${docInfo.fileName} ---\n\n${textContent}`;
