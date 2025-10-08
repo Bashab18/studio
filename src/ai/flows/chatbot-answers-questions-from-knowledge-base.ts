@@ -127,17 +127,13 @@ const chatbotAnswersQuestionsFlow = ai.defineFlow(
         getChatbotModelName()
     ]);
     
-    const dynamicPrompt = ai.definePrompt({
-        ...prompt,
-        model: googleAI.model(modelName),
-    });
-
-    const {output} = await dynamicPrompt({
+    const {output} = await prompt({
         question: input.question,
         userProfileInfo: input.userProfileInfo,
         knowledgeBase: knowledgeBase || 'No knowledge base provided.',
         persona: persona || '',
-    });
+    }, { model: googleAI.model(modelName) });
+    
     return output!;
   }
 );
