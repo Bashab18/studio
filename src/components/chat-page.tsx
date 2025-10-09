@@ -342,7 +342,7 @@ export default function ChatPage() {
               <div className="flex h-[calc(100vh-12rem)] flex-col items-center justify-center text-center">
                 <MessageSquare className="mb-4 h-16 w-16 text-muted-foreground/30" />
                 <h3 className="text-xl font-semibold text-muted-foreground">
-                  Welcome to M-Health
+                  Welcome M-Health
                 </h3>
                 <p className="text-muted-foreground">
                   Start a conversation by typing your health question below.

@@ -6,7 +6,7 @@ import admin from 'firebase-admin';
 const app = admin.apps.length
   ? admin.app()
   : admin.initializeApp({
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'm-health-jxug7.appspot.com',
+      storageBucket: 'm-health-jxug7.firebasestorage.app',
   });
 
 const storage = app.storage();
