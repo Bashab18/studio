@@ -1,18 +1,14 @@
 'use client';
+
 import type { ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Home,
-  MessageSquare,
-  BrainCircuit,
-  Users,
   LogOut,
   Bot,
-  Settings,
+  Loader2,
 } from 'lucide-react';
 import { useEffect } from 'react';
-
 import { useAuth } from '@/hooks/use-auth';
 import {
   SidebarProvider,
@@ -27,7 +23,6 @@ import {
   SidebarInset,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,8 +32,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { adminNavItems } from '@/config/admin-nav';
 
-
+// --- Loading Spinner ---
 function LoadingSpinner() {
   return (
     <div className="flex min-h-screen w-full items-center justify-center bg-background">
@@ -47,6 +43,7 @@ function LoadingSpinner() {
   );
 }
 
+// --- Admin Layout ---
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { user, loading, logout } = useAuth();
   const router = useRouter();
@@ -61,42 +58,41 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     }
   }, [user, loading, router]);
 
-
   if (loading || !user || user.role !== 'admin') {
     return <LoadingSpinner />;
   }
-  
-  const navItems = [
-    { href: '/admin', icon: Home, label: 'Dashboard' },
-    { href: '/admin/knowledge', icon: BrainCircuit, label: 'Knowledge Base' },
-    { href: '/admin/history', icon: MessageSquare, label: 'Chat History' },
-    { href: '/admin/users', icon: Users, label: 'User Profiles' },
-    { href: '/admin/settings', icon: Settings, label: 'Settings' },
-  ];
 
   return (
     <SidebarProvider>
       <Sidebar>
+        {/* Sidebar Header */}
         <SidebarHeader>
           <div className="flex items-center gap-2">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
-                <Bot className="h-5 w-5 text-primary-foreground" />
+              <Bot className="h-5 w-5 text-primary-foreground" />
             </div>
-            <span className="font-headline text-lg text-sidebar-foreground">M-Health Admin</span>
+            <span className="font-headline text-lg text-sidebar-foreground">
+              M-Health Admin
+            </span>
           </div>
         </SidebarHeader>
+
+        {/* Sidebar Content */}
         <SidebarContent>
           <SidebarMenu>
-            {navItems.map((item) => (
+            {adminNavItems.map((item) => (
               <SidebarMenuItem key={item.href}>
                 <Link href={item.href} passHref>
                   <SidebarMenuButton
                     asChild
-                    isActive={pathname === item.href || (item.href !== '/admin' && pathname.startsWith(item.href))}
+                    isActive={
+                      pathname === item.href ||
+                      (item.href !== '/admin' && pathname.startsWith(item.href))
+                    }
                     tooltip={{ children: item.label, side: 'right' }}
                   >
-                    <div>
-                      <item.icon />
+                    <div className="flex items-center gap-2">
+                      <item.icon className="h-5 w-5" />
                       <span>{item.label}</span>
                     </div>
                   </SidebarMenuButton>
@@ -105,39 +101,49 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             ))}
           </SidebarMenu>
         </SidebarContent>
+
+        {/* Sidebar Footer */}
         <SidebarFooter>
-            <Button variant="ghost" className="w-full justify-start gap-2" onClick={logout}>
-                <LogOut />
-                <span>Logout</span>
-            </Button>
+          <Button
+            variant="ghost"
+            className="w-full justify-start gap-2"
+            onClick={logout}
+          >
+            <LogOut />
+            <span>Logout</span>
+          </Button>
         </SidebarFooter>
       </Sidebar>
+
+      {/* Sidebar Inset (Main Area) */}
       <SidebarInset>
         <header className="sticky top-0 z-30 flex h-14 items-center gap-4 border-b bg-background px-4 sm:static sm:h-auto sm:border-0 sm:bg-transparent sm:px-6 sm:py-4">
-            <SidebarTrigger className="sm:hidden" />
-            <div className="ml-auto">
-                 <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                    <Button
-                        variant="outline"
-                        size="icon"
-                        className="overflow-hidden rounded-full"
-                    >
-                        <Avatar className="h-8 w-8">
-                            <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground">
-                                {user.name.charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                        </Avatar>
-                    </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                    <DropdownMenuLabel>{user.name}</DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={logout}>Logout</DropdownMenuItem>
-                    </DropdownMenuContent>
-                </DropdownMenu>
-            </div>
+          <SidebarTrigger className="sm:hidden" />
+          <div className="ml-auto">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="overflow-hidden rounded-full"
+                >
+                  <Avatar className="h-8 w-8">
+                    <AvatarFallback className="bg-sidebar-primary text-sidebar-primary-foreground">
+                      {user.name.charAt(0).toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>{user.name}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout}>Logout</DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </header>
+
+        {/* Page Content */}
         <main className="p-4 sm:px-6 sm:py-0">{children}</main>
       </SidebarInset>
     </SidebarProvider>

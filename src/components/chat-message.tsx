@@ -1,22 +1,15 @@
+'use client';
+
 import { cn } from '@/lib/utils';
 import { Bot, User } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
 import type { Message } from './chat-page';
 
 type ChatMessageProps = {
   message: Message;
 };
-
-// Simple markdown parser for bold and italics
-const parseMarkdown = (text: string) => {
-  const boldRegex = /\*\*(.*?)\*\*/g;
-  const italicRegex = /\*(.*?)\*/g;
-  
-  let html = text.replace(boldRegex, '<strong>$1</strong>');
-  html = html.replace(italicRegex, '<em>$1</em>');
-  
-  return { __html: html };
-};
-
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
@@ -28,22 +21,49 @@ export function ChatMessage({ message }: ChatMessageProps) {
         isUser ? 'justify-end' : 'justify-start'
       )}
     >
+      {/* Bot Avatar */}
       {!isUser && (
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
           <Bot size={20} />
         </div>
       )}
+
+      {/* Message Bubble */}
       <div
         className={cn(
-          'max-w-md rounded-lg px-4 py-3 text-sm shadow-md',
+          'max-w-md rounded-lg px-4 py-3 text-sm shadow-md prose prose-sm dark:prose-invert',
           isUser
-            ? 'rounded-br-none bg-primary text-primary-foreground'
+            ? 'rounded-br-none bg-primary text-primary-foreground prose-p:text-primary-foreground'
             : 'rounded-bl-none bg-card text-card-foreground'
         )}
       >
-        <p className="leading-relaxed" dangerouslySetInnerHTML={parseMarkdown(message.content)} />
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]} // Enables GitHub-style markdown (tables, lists, strikethrough, etc.)
+          rehypePlugins={[rehypeRaw]}  // Allows safe inline HTML if present
+          components={{
+            a: ({ node, ...props }) => (
+              <a {...props} className="text-blue-500 underline hover:text-blue-600" target="_blank" />
+            ),
+            code: ({ node, inline, className, children, ...props }) => (
+              <code
+                className={cn(
+                  'rounded bg-muted px-1.5 py-0.5 text-xs font-mono',
+                  className,
+                  inline ? '' : 'block p-2'
+                )}
+                {...props}
+              >
+                {children}
+              </code>
+            ),
+          }}
+        >
+          {message.content}
+        </ReactMarkdown>
       </div>
-       {isUser && (
+
+      {/* User Avatar */}
+      {isUser && (
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">
           <User size={20} />
         </div>
