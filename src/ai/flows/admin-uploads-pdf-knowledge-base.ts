@@ -78,7 +78,7 @@ export async function rebuildKnowledgeBase(): Promise<RebuildKnowledgeBaseOutput
 
 const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
 const KNOWLEDGE_DOCUMENT_ID = 'main_document';
-const STORAGE_BUCKET = 'm-health-jxug7.appspot.com';
+const STORAGE_BUCKET = 'm-health-jxug7.firebasestorage.app';
 
 const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
   {
@@ -95,10 +95,10 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
         const uniqueId = uuidv4();
         const filePath = `knowledge_base/${uniqueId}_${document.fileName}`;
         const file = bucket.file(filePath);
-        
+
         const base64Data = document.pdfDataUri.substring(document.pdfDataUri.indexOf(',') + 1);
         const buffer = Buffer.from(base64Data, 'base64');
-        
+
         await file.save(buffer, {
           metadata: { contentType: 'application/pdf' },
         });
@@ -110,9 +110,9 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
           filePath: filePath,
         });
       }
-      
+
       await batch.commit();
-      
+
       const rebuildResult = await rebuildKnowledgeBaseFlow({});
       if (!rebuildResult.success) {
         throw new Error(`Knowledge base rebuild failed: ${rebuildResult.message}`);
@@ -153,13 +153,13 @@ const deleteKnowledgeDocumentFlow = ai.defineFlow(
       if (!docSnap.exists()) {
         return { success: false, message: 'Document not found.' };
       }
-      
+
       const documentData = docSnap.data() as KnowledgeDocument;
-      
+
       const bucket = adminStorage.bucket(STORAGE_BUCKET);
       const file = bucket.file(documentData.filePath);
       await file.delete();
-      
+
       await deleteDoc(docRef);
 
       await rebuildKnowledgeBaseFlow({});
@@ -193,7 +193,7 @@ const rebuildKnowledgeBaseFlow = ai.defineFlow({
         const textExtractionPromises = allDocs.map(async (docInfo) => {
             try {
                 const file = bucket.file(docInfo.filePath);
-                
+
                 const [exists] = await file.exists();
                 if (!exists) {
                      console.warn(`File ${docInfo.filePath} not found in Storage for rebuild, skipping.`);
@@ -206,7 +206,7 @@ const rebuildKnowledgeBaseFlow = ai.defineFlow({
                 const textContent = await googleAI.extractText({
                   media: { data: base64Data, mimeType: 'application/pdf' },
                 });
-                
+
                 return `\n\n--- Content from ${docInfo.fileName} ---\n\n${textContent}`;
             } catch (fetchError) {
                 console.error(`Error processing file ${docInfo.fileName} for rebuild, skipping. Error:`, fetchError);
@@ -216,7 +216,7 @@ const rebuildKnowledgeBaseFlow = ai.defineFlow({
 
         const allTextContents = await Promise.all(textExtractionPromises);
         const combinedContent = allTextContents.filter(Boolean).join('');
-        
+
         await setDoc(knowledgeDocRef, {
             content: combinedContent,
             lastUpdatedAt: serverTimestamp(),
