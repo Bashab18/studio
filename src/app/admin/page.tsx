@@ -3,10 +3,12 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Users, BrainCircuit, BarChart3, Clock, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffect, useState } from "react";
-import { collection, getDocs, limit, orderBy, query, aggregate, sum, average } from "firebase/firestore";
+import { collection, getDocs, limit, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatDistanceToNow } from 'date-fns';
 import { getKnowledgeDocuments, type KnowledgeDocument } from "@/ai/flows/admin-uploads-pdf-knowledge-base";
+import { getCountFromServer } from "firebase/firestore";
+
 
 type DashboardStats = {
   totalUsers: number;
@@ -40,59 +42,72 @@ export default function AdminDashboard() {
   useEffect(() => {
     async function fetchStats() {
       try {
-        const usersCollection = collection(db, 'users');
+        //gets all users as once
+        //calculates everything from a single snapshot instead of 3 queries
 
-        // Fetch total users, avg logins
-        const userQuery = query(usersCollection);
-        const userSnapshot = await getDocs(userQuery);
-        const totalUsers = userSnapshot.size;
-        const totalLogins = userSnapshot.docs.reduce((acc, doc) => acc + (doc.data().loginCount || 0), 0);
-        const avgLogins = totalUsers > 0 ? parseFloat((totalLogins / totalUsers).toFixed(1)) : 0;
+        const usersSnapshot = await getDocs(collection(db, "users")); //gets users from firebase
+        const users = usersSnapshot.docs.map((d) => d.data());
 
-        // Fetch last login
-        const lastLoginQuery = query(usersCollection, orderBy('lastLogin', 'desc'), limit(1));
-        const lastLoginSnapshot = await getDocs(lastLoginQuery);
-        let lastLogin: string | null = null;
-        if (!lastLoginSnapshot.empty) {
-            const lastLoginUser = lastLoginSnapshot.docs[0].data();
-            if (lastLoginUser.lastLogin) {
-              lastLogin = formatDistanceToNow(lastLoginUser.lastLogin.toDate(), { addSuffix: true });
-            }
-        }
-        
-        // Fetch most recent user
-        const recentUserQuery = query(usersCollection, orderBy('createdAt', 'desc'), limit(1));
-        const recentUserSnapshot = await getDocs(recentUserQuery);
-        let recentUser: DashboardStats['recentUser'] = null;
-        if (!recentUserSnapshot.empty) {
-            const recentUserData = recentUserSnapshot.docs[0].data();
-            recentUser = {
-                name: recentUserData.name,
-                email: recentUserData.email,
-                createdAt: formatDistanceToNow(recentUserData.createdAt.toDate(), { addSuffix: true })
-            };
-        }
+        const totalUsers = users.length; 
 
-        // Fetch knowledge base stats
-        const knowledgeDocs = await getKnowledgeDocuments();
-        const knowledgeBaseDocs = knowledgeDocs.length;
+        const totalLogins = users.reduce((acc, u) => acc + (u.loginCount || 0), 0);
+
+        const avgLogins = totalUsers > 0 ? parseFloat((totalLogins / totalUsers).toFixed(1)) :0;
+
+        //gets most recent user client side
+        const recentUserData = [...users].sort(
+        (a, b) => b.createdAt?.toMillis() - a.createdAt?.toMillis())[0];
+        const recentUser = recentUserData ? {
+            name: recentUserData.name,
+            email: recentUserData.email,
+            createdAt: formatDistanceToNow(
+            recentUserData.createdAt.toDate(),
+            {addSuffix: true}
+            ),
+          }
+        : null;
+        //gets last login client side
+        const lastLoginUser = [...users].sort(
+            (a, b) => b.lastLogin?.toMillis() - a.lastLogin?.toMillis()
+        )[0];
+        const lastLogin = lastLoginUser?.lastLogin
+            ? formatDistanceToNow(lastLoginUser.lastLogin.toDate(), {
+            addSuffix: true,
+          })
+        : null;
+
+        //database querying not longer gathers all documents at once - used a lot of bandwidth
+        //just gets most recent uploaded doc
+        const kbQuery = query(
+            collection(db, "knowledge_base"),
+            orderBy("uploadedAt", "desc"),
+            limit(1)
+            );
+            const kbSnapshot = await getDocs(kbQuery);
+
+        // gets only the total count using Firestore aggregation (lightweight)
+        const countSnapshot = await getCountFromServer(collection(db, "knowledge_base"));
+        const knowledgeBaseDocs = countSnapshot.data().count;
+
         let lastKnowledgeUpdate: string | null = null;
-        if (knowledgeDocs.length > 0) {
-            const mostRecentDoc = knowledgeDocs[0]; // Already sorted by date desc
-            if (mostRecentDoc.uploadedAt) {
-                lastKnowledgeUpdate = formatDistanceToNow(new Date(mostRecentDoc.uploadedAt.seconds * 1000), { addSuffix: true });
-            }
+        if (!kbSnapshot.empty) {
+        const mostRecentDoc = kbSnapshot.docs[0].data();
+        if (mostRecentDoc.uploadedAt) {
+            lastKnowledgeUpdate = formatDistanceToNow(
+            mostRecentDoc.uploadedAt.toDate(),
+            { addSuffix: true }
+            );
         }
+    }
+
         
         setStats({ totalUsers, knowledgeBaseDocs, avgLogins, lastLogin, recentUser, lastKnowledgeUpdate });
-
       } catch (error) {
         console.error("Error fetching dashboard stats:", error);
       } finally {
         setIsLoading(false);
       }
     }
-
     fetchStats();
   }, []);
 
