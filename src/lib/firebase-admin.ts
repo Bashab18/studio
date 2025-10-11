@@ -7,7 +7,9 @@ const app = admin.apps.length
   ? admin.app()
   : admin.initializeApp({
       credential: admin.credential.applicationDefault(),
-      storageBucket: 'm-health-jxug7.firebasestorage.app',
+      // The storageBucket is read from the environment variable FIREBASE_STORAGE_BUCKET
+      // which is automatically set by App Hosting.
+      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
     });
 
 const storage = app.storage();

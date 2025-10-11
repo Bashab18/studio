@@ -13,7 +13,6 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { v4 as uuidv4 } from 'uuid';
 import { firestore, storage as adminStorage } from '@/lib/firebase-admin';
 import admin from 'firebase-admin';
 import { googleAI } from '@genkit-ai/googleai';
@@ -54,7 +53,7 @@ export type RebuildKnowledgeBaseOutput = z.infer<typeof RebuildKnowledgeBaseOutp
 const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
 const KNOWLEDGE_DOCUMENT_ID = 'main_document';
 const DOCUMENTS_COLLECTION = 'production_knowledge_documents';
-const STORAGE_BUCKET = 'm-health-jxug7.firebasestorage.app';
+const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || 'm-health-jxug7.appspot.com';
 
 export async function adminUploadsPdfKnowledgeBase(
   input: AdminUploadsPdfKnowledgeBaseInput
@@ -106,7 +105,7 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
       const batch = firestore.batch();
 
       for (const document of input.documents) {
-        const uniqueId = uuidv4();
+        const uniqueId = Date.now() + '-' + Math.random().toString(36).substring(2);
         const filePath = `knowledge_base/${uniqueId}_${document.fileName}`;
         const file = bucket.file(filePath);
 
@@ -136,6 +135,12 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
       };
     } catch (error: any) {
       console.error('Error processing PDFs:', error);
+      if (error.code === 403 || (error.message && error.message.includes('permission'))) {
+        return {
+          success: false,
+          message: "Permission Denied. Please grant the 'Storage Admin' role to your App Hosting service account in the Google Cloud IAM console.",
+        };
+      }
       return {
         success: false,
         message: (error as Error).message || 'Failed to process PDFs.',
@@ -169,9 +174,15 @@ const deleteKnowledgeDocumentFlow = ai.defineFlow(
       await rebuildKnowledgeBaseFlow({});
 
       return { success: true, message: `Document '${documentData.fileName}' deleted. Knowledge base is being updated.` };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error deleting document:', error);
-      return { success: false, message: 'Failed to delete document.' };
+       if (error.code === 403 || (error.message && error.message.includes('permission'))) {
+        return {
+          success: false,
+          message: "Permission Denied. Please grant the 'Storage Admin' role to your App Hosting service account in the Google Cloud IAM console.",
+        };
+      }
+      return { success: false, message: (error as Error).message || 'Failed to delete document.' };
     }
   }
 );
@@ -234,9 +245,15 @@ const rebuildKnowledgeBaseFlow = ai.defineFlow(
       );
 
       return { success: true, message: 'Knowledge base rebuilt successfully.' };
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error rebuilding knowledge base:', error);
-      return { success: false, message: 'Failed to rebuild knowledge base.' };
+       if (error.code === 403 || (error.message && error.message.includes('permission'))) {
+        return {
+          success: false,
+          message: "Permission Denied. Please grant the 'Storage Admin' role or 'Cloud Datastore User' to your App Hosting service account in the Google Cloud IAM console.",
+        };
+      }
+      return { success: false, message: (error as Error).message || 'Failed to rebuild knowledge base.' };
     }
   }
 );
