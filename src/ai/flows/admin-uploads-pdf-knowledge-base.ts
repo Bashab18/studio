@@ -16,7 +16,6 @@ import { collection, addDoc, serverTimestamp, doc, getDoc, setDoc, updateDoc, de
 import { db } from '@/lib/firebase';
 import { googleAI } from '@genkit-ai/googleai';
 import { storage as adminStorage } from '@/lib/firebase-admin';
-import { v4 as uuidv4 } from 'uuid';
 
 
 export type KnowledgeDocument = {
@@ -92,7 +91,7 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
       const batch = writeBatch(db);
 
       for (const document of input.documents) {
-        const uniqueId = uuidv4();
+        const uniqueId = Date.now() + '-' + Math.random().toString(36).substring(2);
         const filePath = `knowledge_base/${uniqueId}_${document.fileName}`;
         const file = bucket.file(filePath);
         
