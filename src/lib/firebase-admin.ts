@@ -7,7 +7,7 @@ const app = admin.apps.length
   ? admin.app()
   : admin.initializeApp({
       credential: admin.credential.applicationDefault(),
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+      storageBucket: 'm-health-jxug7.firebasestorage.app',
     });
 
 const storage = app.storage();

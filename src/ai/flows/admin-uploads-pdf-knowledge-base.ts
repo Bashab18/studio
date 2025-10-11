@@ -53,7 +53,7 @@ export type RebuildKnowledgeBaseOutput = z.infer<typeof RebuildKnowledgeBaseOutp
 const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
 const KNOWLEDGE_DOCUMENT_ID = 'main_document';
 const DOCUMENTS_COLLECTION = 'production_knowledge_documents';
-const STORAGE_BUCKET = process.env.FIREBASE_STORAGE_BUCKET || 'm-health-jxug7.appspot.com';
+const STORAGE_BUCKET = 'm-health-jxug7.firebasestorage.app';
 
 export async function adminUploadsPdfKnowledgeBase(
   input: AdminUploadsPdfKnowledgeBaseInput
