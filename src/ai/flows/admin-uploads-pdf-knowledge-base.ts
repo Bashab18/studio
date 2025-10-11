@@ -103,9 +103,10 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
     try {
       const bucket = adminStorage.bucket(STORAGE_BUCKET);
       const batch = firestore.batch();
+      
+      const uniqueId = Date.now() + '-' + Math.random().toString(36).substring(2);
 
       for (const document of input.documents) {
-        const uniqueId = Date.now() + '-' + Math.random().toString(36).substring(2);
         const filePath = `knowledge_base/${uniqueId}_${document.fileName}`;
         const file = bucket.file(filePath);
 
@@ -139,6 +140,12 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
         return {
           success: false,
           message: "Permission Denied. Please grant the 'Storage Admin' role to your App Hosting service account in the Google Cloud IAM console.",
+        };
+      }
+      if (error.code === 'permission-denied' || (error.message && error.message.includes('permission-denied'))) {
+        return {
+          success: false,
+          message: "Permission Denied. Please grant the 'Cloud Datastore User' role to your App Hosting service account in the Google Cloud IAM console.",
         };
       }
       return {
@@ -180,6 +187,12 @@ const deleteKnowledgeDocumentFlow = ai.defineFlow(
         return {
           success: false,
           message: "Permission Denied. Please grant the 'Storage Admin' role to your App Hosting service account in the Google Cloud IAM console.",
+        };
+      }
+      if (error.code === 'permission-denied' || (error.message && error.message.includes('permission-denied'))) {
+        return {
+          success: false,
+          message: "Permission Denied. Please grant the 'Cloud Datastore User' role to your App Hosting service account in the Google Cloud IAM console.",
         };
       }
       return { success: false, message: (error as Error).message || 'Failed to delete document.' };
@@ -247,10 +260,10 @@ const rebuildKnowledgeBaseFlow = ai.defineFlow(
       return { success: true, message: 'Knowledge base rebuilt successfully.' };
     } catch (error: any) {
       console.error('Error rebuilding knowledge base:', error);
-       if (error.code === 403 || (error.message && error.message.includes('permission'))) {
+       if (error.code === 403 || (error.code === 7) ||(error.message && (error.message.includes('permission') || error.message.includes('denied')))) {
         return {
           success: false,
-          message: "Permission Denied. Please grant the 'Storage Admin' role or 'Cloud Datastore User' to your App Hosting service account in the Google Cloud IAM console.",
+          message: "Permission Denied. Ensure the App Hosting service account has 'Storage Admin', 'Cloud Datastore User', and 'Service Account Token Creator' roles in the Google Cloud IAM console.",
         };
       }
       return { success: false, message: (error as Error).message || 'Failed to rebuild knowledge base.' };
