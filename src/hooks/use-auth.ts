@@ -53,23 +53,33 @@ async function getUserProfile(uid: string): Promise<User | null> {
 
 const createUserProfile = async (firebaseUser: FirebaseUser, name: string, role: 'user' | 'admin'): Promise<User> => {
       const userDocRef = doc(db, 'users', firebaseUser.uid);
-      const newUserProfile: Omit<User, 'createdAt' | 'adminNotes' | 'profileInfo'> & {createdAt: any, lastLogin: any, adminNotes: string, profileInfo: string} = {
-          id: firebaseUser.uid,
-          name: name,
-          email: firebaseUser.email!,
-          role: role,
-          loginCount: 1,
-          createdAt: serverTimestamp(),
+
+      const existingProfile = await getUserProfile(firebaseUser.uid);
+      if (existingProfile) {
+        await updateDoc(userDocRef, {
           lastLogin: serverTimestamp(),
-          adminNotes: '',
-          profileInfo: '',
+          loginCount: increment(1)
+        });
+        return existingProfile;
+      }
+
+      const newUserProfile = {
+        id: firebaseUser.uid,
+        name: name,
+        email: firebaseUser.email!,
+        role: role,
+        loginCount: 1,
+        createdAt: serverTimestamp(),
+        lastLogin: serverTimestamp(),
+        adminNotes: '',
+        profileInfo: '',
       };
-      
+
       await setDoc(userDocRef, newUserProfile);
-      
+
       const createdProfile = await getUserProfile(firebaseUser.uid);
       return createdProfile!;
-  }
+    };
 
 export function useAuthHook(): UseAuthReturn {
   const [user, setUser] = useState<User | null>(null);
@@ -107,7 +117,7 @@ export function useAuthHook(): UseAuthReturn {
         password
       );
       const firebaseUser = userCredential.user;
-      
+
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
 
@@ -151,7 +161,7 @@ export function useAuthHook(): UseAuthReturn {
 
       // Create user profile in Firestore
       const userProfile = await createUserProfile(firebaseUser, name, role);
-      
+
       setUser(userProfile);
       return userProfile;
 

@@ -8,6 +8,8 @@ import {
   query,
   orderBy,
   onSnapshot,
+  writeBatch,
+  doc,
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
@@ -107,7 +109,7 @@ function UserProfileDialog() {
       setIsSaving(false);
     }
   };
-  
+
   return (
       <Dialog open={isOpen} onOpenChange={setIsOpen}>
         <DialogTrigger asChild>
@@ -204,39 +206,59 @@ export default function ChatPage() {
 
     const userMessageContent = input;
     setInput('');
+    setIsLoading(true); // moved to here for AI+user chat atomic save
 
+    try {
+      // calling AI first, then prepare both msg: user and AI
+      const { answer } = await chatbotAnswersQuestions({
+        question: userMessageContent,
+        userProfileInfo: user.profileInfo || '',
+    });
+
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: answer,
+      createdAt: serverTimestamp(),
+    };
     const userMessage: Message = {
       role: 'user',
       content: userMessageContent,
       createdAt: serverTimestamp(),
     };
-    await addDoc(collection(db, 'chats', user.id, 'messages'), userMessage);
-    
-    setIsLoading(true);
 
-    try {
-      const { answer } = await chatbotAnswersQuestions({ 
-          question: userMessageContent,
-          userProfileInfo: user.profileInfo || '',
-      });
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: answer,
-        createdAt: serverTimestamp(),
-      };
-      await addDoc(collection(db, 'chats', user.id, 'messages'), assistantMessage);
+    // used firestore batch write: saving both msg at once, not asynchronously
+    const batch = writeBatch(db);
+    const userMsgRef = doc(collection(db, 'chats', user.id, 'messages'));
+    const assistantMsgRef = doc(collection(db, 'chats', user.id, 'messages'));
+
+    batch.set(userMsgRef, userMessage);
+    batch.set(assistantMsgRef, assistantMessage);
+
+    await batch.commit();
     } catch (error) {
+      // in case AI fails, insert fallback msg instead
+      const batch = writeBatch(db); // a new batch obj
+      const userMsgRef = doc(collection(db, 'chats', user.id, 'messages')); // a new doc ref
+      const assistantMsgRef = doc(collection(db, 'chats', user.id, 'messages'));
+
+      batch.set(userMsgRef, {
+        role: 'user',
+        content:userMessageContent,
+        createdAt: serverTimestamp(),
+      });
+
+      batch.set(assistantMsgRef, {
+          role: 'assistant',
+          content: "Sorry, I couldn't process your request.",
+          createdAt: serverTimestamp(),
+        });
+      await batch.commit();
+
       toast({
         variant: 'destructive',
         title: 'Error',
         description: 'Failed to get a response from the AI.',
       });
-      const assistantMessage: Message = {
-        role: 'assistant',
-        content: "Sorry, I couldn't process your request.",
-        createdAt: serverTimestamp(),
-      };
-      await addDoc(collection(db, 'chats', user.id, 'messages'), assistantMessage);
     } finally {
       setIsLoading(false);
     }
