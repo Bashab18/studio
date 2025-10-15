@@ -14,6 +14,7 @@ const models = [
     { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash' },
     { id: 'gemini-1.5-flash-latest', name: 'Gemini 1.5 Flash' },
     { id: 'gemini-1.5-pro-latest', name: 'Gemini 1.5 Pro' },
+    { id: 'gemma-7b-it', name: 'Gemma 7B' },
 ];
 
 export default function SettingsPage() {

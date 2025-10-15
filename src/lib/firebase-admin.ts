@@ -1,14 +1,16 @@
 import admin from 'firebase-admin';
 
-// Correctly initialize the Firebase Admin SDK
-// This ensures that server-side operations (like in Genkit flows)
-// have the necessary permissions.
+// In a managed environment like Firebase App Hosting, the SDK will automatically
+// discover the correct credentials to use. There is no need to manage a
+// service account key file manually.
 const app = admin.apps.length
   ? admin.app()
   : admin.initializeApp({
-      storageBucket: process.env.FIREBASE_STORAGE_BUCKET || 'm-health-jxug7.appspot.com',
-  });
+      credential: admin.credential.applicationDefault(),
+      storageBucket: 'm-health-jxug7.firebasestorage.app',
+    });
 
 const storage = app.storage();
+const firestore = app.firestore();
 
-export { app, storage };
+export { app, storage, firestore };
