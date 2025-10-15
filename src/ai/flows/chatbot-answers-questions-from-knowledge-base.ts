@@ -130,7 +130,7 @@ const chatbotAnswersQuestionsFlow = ai.defineFlow(
     ]);
     
     const {stream} = await generate({
-        prompt: prompt.prompt,
+        prompt: prompt,
         model: googleAI.model(modelName),
         input: {
             question: input.question,
