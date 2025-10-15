@@ -287,7 +287,7 @@ export default function ChatPage() {
     let finalAnswer = '';
   
     try {
-      const { stream, response } = await chatbotAnswersQuestions({ 
+      const stream = await chatbotAnswersQuestions({ 
         question: messageContent,
         userProfileInfo: user.profileInfo || '',
       });
@@ -302,8 +302,6 @@ export default function ChatPage() {
           );
         }
       }
-
-      await response;
   
       const assistantMessage: Message = {
         role: 'assistant',

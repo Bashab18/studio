@@ -8,11 +8,10 @@
  */
 
 import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import {z, type Part} from 'genkit';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { googleAI } from '@genkit-ai/googleai';
-import { type Part } from 'genkit';
 
 const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
 const KNOWLEDGE_DOCUMENT_ID = 'main_document';
@@ -31,7 +30,7 @@ const ChatbotAnswersQuestionsOutputSchema = z.object({
 });
 export type ChatbotAnswersQuestionsOutput = z.infer<typeof ChatbotAnswersQuestionsOutputSchema>;
 
-export async function chatbotAnswersQuestions(input: ChatbotAnswersQuestionsInput): Promise<{ stream: AsyncGenerator<Part>; response: Promise<void> }> {
+export async function chatbotAnswersQuestions(input: ChatbotAnswersQuestionsInput): Promise<AsyncGenerator<Part>> {
   return chatbotAnswersQuestionsFlow(input);
 }
 
@@ -132,7 +131,7 @@ const chatbotAnswersQuestionsFlow = ai.defineFlow(
         getChatbotModelName()
     ]);
     
-    const {stream, response} = ai.generate({
+    const {stream} = await ai.generate({
         prompt: prompt,
         model: googleAI.model(modelName),
         input: {
@@ -144,6 +143,6 @@ const chatbotAnswersQuestionsFlow = ai.defineFlow(
         stream: true,
     });
 
-    return { stream, response: response.then(() => {}) };
+    return stream;
   }
 );
