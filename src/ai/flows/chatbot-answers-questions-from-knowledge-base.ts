@@ -31,7 +31,7 @@ const ChatbotAnswersQuestionsOutputSchema = z.object({
 });
 export type ChatbotAnswersQuestionsOutput = z.infer<typeof ChatbotAnswersQuestionsOutputSchema>;
 
-export async function chatbotAnswersQuestions(input: ChatbotAnswersQuestionsInput): Promise<AsyncGenerator<Part>> {
+export async function chatbotAnswersQuestions(input: ChatbotAnswersQuestionsInput): Promise<{ stream: AsyncGenerator<Part>; response: Promise<void> }> {
   return chatbotAnswersQuestionsFlow(input);
 }
 
@@ -123,17 +123,16 @@ const chatbotAnswersQuestionsFlow = ai.defineFlow(
   {
     name: 'chatbotAnswersQuestionsFlow',
     inputSchema: ChatbotAnswersQuestionsInputSchema,
-    outputSchema: z.string(),
-    stream: true,
+    outputSchema: z.any(),
   },
-  async function* (input) {
+  async (input) => {
     const [knowledgeBase, persona, modelName] = await Promise.all([
         getKnowledgeBaseContent(),
         getChatbotPersonaContent(),
         getChatbotModelName()
     ]);
     
-    const {stream} = await generate({
+    const {stream, response} = generate({
         prompt: prompt,
         model: googleAI.model(modelName),
         input: {
@@ -145,8 +144,6 @@ const chatbotAnswersQuestionsFlow = ai.defineFlow(
         stream: true,
     });
 
-    for await (const chunk of stream) {
-      yield chunk;
-    }
+    return { stream, response: response.then(() => {}) };
   }
 );
