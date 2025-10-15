@@ -227,6 +227,11 @@ export default function ChatPage() {
       };
 
       recognition.onerror = (event) => {
+        // The 'no-speech' error is triggered when the user doesn't say anything.
+        // We can safely ignore it to prevent showing an unnecessary error toast.
+        if (event.error === 'no-speech') {
+          return;
+        }
         console.error('Speech recognition error:', event.error);
         toast({ variant: 'destructive', title: 'Voice Error', description: `Could not recognize speech: ${event.error}` });
       };
@@ -546,5 +551,3 @@ export default function ChatPage() {
     </div>
   );
 }
-
-    
