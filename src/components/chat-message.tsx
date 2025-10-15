@@ -8,6 +8,10 @@ type ChatMessageProps = {
 
 // Simple markdown parser for bold and italics
 const parseMarkdown = (text: string) => {
+  // Add a non-breaking space if the text is empty to prevent the div from collapsing
+  if (!text.trim()) {
+    return { __html: '&nbsp;' };
+  }
   const boldRegex = /\*\*(.*?)\*\*/g;
   const italicRegex = /\*(.*?)\*/g;
   
@@ -20,6 +24,9 @@ const parseMarkdown = (text: string) => {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === 'user';
+
+  // Add a blinking cursor for the last streaming message
+  const isStreaming = message.content === '' && message.role === 'assistant';
 
   return (
     <div
@@ -42,6 +49,7 @@ export function ChatMessage({ message }: ChatMessageProps) {
         )}
       >
         <p className="leading-relaxed" dangerouslySetInnerHTML={parseMarkdown(message.content)} />
+        {isStreaming && <span className="animate-pulse">|</span>}
       </div>
        {isUser && (
         <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-accent text-accent-foreground">

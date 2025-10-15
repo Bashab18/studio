@@ -12,6 +12,7 @@ import {z} from 'genkit';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { googleAI } from '@genkit-ai/googleai';
+import { generate, type Part } from 'genkit';
 
 const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
 const KNOWLEDGE_DOCUMENT_ID = 'main_document';
@@ -30,7 +31,7 @@ const ChatbotAnswersQuestionsOutputSchema = z.object({
 });
 export type ChatbotAnswersQuestionsOutput = z.infer<typeof ChatbotAnswersQuestionsOutputSchema>;
 
-export async function chatbotAnswersQuestions(input: ChatbotAnswersQuestionsInput): Promise<ChatbotAnswersQuestionsOutput> {
+export async function chatbotAnswersQuestions(input: ChatbotAnswersQuestionsInput): Promise<AsyncGenerator<Part>> {
   return chatbotAnswersQuestionsFlow(input);
 }
 
@@ -107,10 +108,10 @@ async function getChatbotModelName(): Promise<string> {
         if (modelDoc.exists() && modelDoc.data().model) {
             return modelDoc.data().model;
         }
-        return 'gemini-2.5-flash'; // Fallback to default
+        return 'gemini-1.5-flash-latest'; // Fallback to default
     } catch (error) {
         console.error("Error fetching chatbot model:", error);
-        return 'gemini-2.5-flash';
+        return 'gemini-1.5-flash-latest';
     }
 }
 
@@ -118,22 +119,30 @@ const chatbotAnswersQuestionsFlow = ai.defineFlow(
   {
     name: 'chatbotAnswersQuestionsFlow',
     inputSchema: ChatbotAnswersQuestionsInputSchema,
-    outputSchema: ChatbotAnswersQuestionsOutputSchema,
+    outputSchema: z.string(),
+    stream: true,
   },
-  async input => {
+  async function* (input) {
     const [knowledgeBase, persona, modelName] = await Promise.all([
         getKnowledgeBaseContent(),
         getChatbotPersonaContent(),
         getChatbotModelName()
     ]);
     
-    const {output} = await prompt({
-        question: input.question,
-        userProfileInfo: input.userProfileInfo,
-        knowledgeBase: knowledgeBase || 'No knowledge base provided.',
-        persona: persona || '',
-    }, { model: googleAI.model(modelName) });
-    
-    return output!;
+    const {stream} = await generate({
+        prompt: prompt.prompt,
+        model: googleAI.model(modelName),
+        input: {
+            question: input.question,
+            userProfileInfo: input.userProfileInfo,
+            knowledgeBase: knowledgeBase || 'No knowledge base provided.',
+            persona: persona || '',
+        },
+        stream: true,
+    });
+
+    for await (const chunk of stream) {
+      yield chunk;
+    }
   }
 );

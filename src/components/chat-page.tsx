@@ -8,6 +8,8 @@ import {
   query,
   orderBy,
   onSnapshot,
+  updateDoc,
+  doc
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
@@ -60,6 +62,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
+import { v4 as uuidv4 } from 'uuid';
 
 
 export type Message = {
@@ -201,10 +204,10 @@ export default function ChatPage() {
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading || !user) return;
-
+  
     const userMessageContent = input;
     setInput('');
-
+  
     const userMessage: Message = {
       role: 'user',
       content: userMessageContent,
@@ -213,30 +216,62 @@ export default function ChatPage() {
     await addDoc(collection(db, 'chats', user.id, 'messages'), userMessage);
     
     setIsLoading(true);
-
+  
+    // Add a temporary assistant message that will be updated
+    const assistantMessageId = uuidv4();
+    const tempAssistantMessage: Message = {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+    };
+    setMessages(currentMessages => [...currentMessages, tempAssistantMessage]);
+  
+    let finalAnswer = '';
+  
     try {
-      const { answer } = await chatbotAnswersQuestions({ 
-          question: userMessageContent,
-          userProfileInfo: user.profileInfo || '',
+      const stream = await chatbotAnswersQuestions({ 
+        question: userMessageContent,
+        userProfileInfo: user.profileInfo || '',
       });
+  
+      for await (const chunk of stream) {
+        if (chunk.text) {
+          finalAnswer += chunk.text;
+          setMessages(currentMessages => 
+            currentMessages.map(msg => 
+              msg.id === assistantMessageId ? { ...msg, content: finalAnswer } : msg
+            )
+          );
+        }
+      }
+  
+      // Now that the stream is complete, save the final message to Firestore.
       const assistantMessage: Message = {
         role: 'assistant',
-        content: answer,
+        content: finalAnswer,
         createdAt: serverTimestamp(),
       };
       await addDoc(collection(db, 'chats', user.id, 'messages'), assistantMessage);
+  
+      // Remove the temporary client-side message
+      setMessages(currentMessages => currentMessages.filter(msg => msg.id !== assistantMessageId));
+  
     } catch (error) {
+      console.error("Error getting response:", error);
       toast({
         variant: 'destructive',
         title: 'Error',
         description: 'Failed to get a response from the AI.',
       });
-      const assistantMessage: Message = {
+      // Save an error message to Firestore
+      const errorMessage: Message = {
         role: 'assistant',
-        content: "Sorry, I couldn't process your request.",
+        content: "Sorry, I couldn't process your request. An error occurred.",
         createdAt: serverTimestamp(),
       };
-      await addDoc(collection(db, 'chats', user.id, 'messages'), assistantMessage);
+      await addDoc(collection(db, 'chats', user.id, 'messages'), errorMessage);
+      // Remove the temporary message
+      setMessages(currentMessages => currentMessages.filter(msg => msg.id !== assistantMessageId));
     } finally {
       setIsLoading(false);
     }
@@ -246,15 +281,11 @@ export default function ChatPage() {
     if (!user) return;
     setIsClearing(true);
     try {
-        const result = await clearChatHistory(user.id);
-        if (result.success) {
-            toast({
-                title: 'Chat History Cleared',
-                description: 'Your conversation has been permanently deleted.',
-            });
-        } else {
-            throw new Error(result.message);
-        }
+        await clearChatHistory(user.id);
+        toast({
+            title: 'Chat History Cleared',
+            description: 'Your conversation has been permanently deleted.',
+        });
     } catch (error) {
          toast({
             variant: 'destructive',
@@ -350,10 +381,10 @@ export default function ChatPage() {
               </div>
             ) : (
               <div className="space-y-6">
-                {messages.map((msg) => (
-                  <ChatMessage key={msg.id} message={msg} />
+                {messages.map((msg, index) => (
+                  <ChatMessage key={msg.id || `msg-${index}`} message={msg} />
                 ))}
-                {isLoading && (
+                {isLoading && messages[messages.length - 1]?.role !== 'assistant' && (
                   <div className="flex items-start gap-3 justify-start">
                     <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
                       <Bot size={20} />
