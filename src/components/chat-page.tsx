@@ -20,6 +20,7 @@ import {
   User as UserIcon,
   Volume2,
   VolumeX,
+  Mic,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -64,6 +65,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { v4 as uuidv4 } from 'uuid';
 import { textToSpeech } from '@/ai/flows/text-to-speech';
+import { cn } from '@/lib/utils';
 
 
 export type Message = {
@@ -72,6 +74,14 @@ export type Message = {
   content: string;
   createdAt?: any;
 };
+
+// SpeechRecognition type declaration for window
+declare global {
+  interface Window {
+    SpeechRecognition: typeof SpeechRecognition;
+    webkitSpeechRecognition: typeof SpeechRecognition;
+  }
+}
 
 function UserProfileDialog() {
   const { user, refreshUserProfile } = useAuth();
@@ -162,8 +172,10 @@ export default function ChatPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
   const [isAudioEnabled, setIsAudioEnabled] = useState(false);
+  const [isListening, setIsListening] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -195,7 +207,41 @@ export default function ChatPage() {
   }, [user, toast]);
 
   useEffect(() => {
-    // Scroll to bottom when messages change
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+
+      recognition.onresult = (event) => {
+        const transcript = Array.from(event.results)
+          .map(result => result[0])
+          .map(result => result.transcript)
+          .join('');
+        setInput(transcript);
+
+        if (event.results[0].isFinal) {
+            handleVoiceSubmit(transcript);
+        }
+      };
+
+      recognition.onerror = (event) => {
+        console.error('Speech recognition error:', event.error);
+        toast({ variant: 'destructive', title: 'Voice Error', description: `Could not recognize speech: ${event.error}` });
+      };
+
+      recognition.onend = () => {
+        setIsListening(false);
+      };
+
+      recognitionRef.current = recognition;
+    } else {
+      console.warn('Speech Recognition not supported in this browser.');
+    }
+  }, [toast]);
+
+  useEffect(() => {
     if (scrollAreaRef.current) {
       scrollAreaRef.current.scrollTo({
         top: scrollAreaRef.current.scrollHeight,
@@ -213,23 +259,18 @@ export default function ChatPage() {
     audioRef.current = audio;
   };
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!input.trim() || isLoading || !user) return;
-  
-    const userMessageContent = input;
-    setInput('');
+  const handleMessageSubmit = async (messageContent: string) => {
+    if (!messageContent.trim() || isLoading || !user) return;
   
     const userMessage: Message = {
       role: 'user',
-      content: userMessageContent,
+      content: messageContent,
       createdAt: serverTimestamp(),
     };
     await addDoc(collection(db, 'chats', user.id, 'messages'), userMessage);
     
     setIsLoading(true);
   
-    // Add a temporary assistant message that will be updated
     const assistantMessageId = uuidv4();
     const tempAssistantMessage: Message = {
       id: assistantMessageId,
@@ -242,7 +283,7 @@ export default function ChatPage() {
   
     try {
       const stream = chatbotAnswersQuestions({ 
-        question: userMessageContent,
+        question: messageContent,
         userProfileInfo: user.profileInfo || '',
       });
   
@@ -257,7 +298,6 @@ export default function ChatPage() {
         }
       }
   
-      // Now that the stream is complete, save the final message to Firestore.
       const assistantMessage: Message = {
         role: 'assistant',
         content: finalAnswer,
@@ -265,10 +305,8 @@ export default function ChatPage() {
       };
       await addDoc(collection(db, 'chats', user.id, 'messages'), assistantMessage);
   
-      // Remove the temporary client-side message
       setMessages(currentMessages => currentMessages.filter(msg => msg.id !== assistantMessageId));
       
-      // Generate and play audio if enabled
       if (isAudioEnabled && finalAnswer) {
           try {
               const { audio } = await textToSpeech(finalAnswer);
@@ -290,17 +328,42 @@ export default function ChatPage() {
         title: 'Error',
         description: 'Failed to get a response from the AI.',
       });
-      // Save an error message to Firestore
       const errorMessage: Message = {
         role: 'assistant',
         content: "Sorry, I couldn't process your request. An error occurred.",
         createdAt: serverTimestamp(),
       };
       await addDoc(collection(db, 'chats', user.id, 'messages'), errorMessage);
-      // Remove the temporary message
       setMessages(currentMessages => currentMessages.filter(msg => msg.id !== assistantMessageId));
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    handleMessageSubmit(input);
+    setInput('');
+  };
+  
+  const handleVoiceSubmit = async (transcribedText: string) => {
+    if (transcribedText.trim()) {
+        handleMessageSubmit(transcribedText);
+    }
+    setInput('');
+  };
+
+  const startListening = () => {
+    if (recognitionRef.current && !isListening) {
+      recognitionRef.current.start();
+      setIsListening(true);
+    }
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current && isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
     }
   };
 
@@ -443,14 +506,14 @@ export default function ChatPage() {
       <footer className="border-t bg-card p-4 md:p-6">
         <form
           onSubmit={handleSubmit}
-          className="mx-auto flex w-full max-w-3xl items-center gap-4"
+          className="mx-auto flex w-full max-w-3xl items-center gap-2"
         >
           <Input
             type="text"
-            placeholder="Ask anything about your health..."
+            placeholder={isListening ? 'Listening...' : 'Ask anything about your health...'}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            disabled={isLoading}
+            disabled={isLoading || isListening}
             className="flex-1"
           />
           <Button
@@ -465,8 +528,23 @@ export default function ChatPage() {
             )}
             <span className="sr-only">Send</span>
           </Button>
+           <Button
+            type="button"
+            size="icon"
+            variant={isListening ? 'destructive' : 'outline'}
+            onMouseDown={startListening}
+            onMouseUp={stopListening}
+            onTouchStart={startListening}
+            onTouchEnd={stopListening}
+            disabled={!recognitionRef.current || isLoading}
+          >
+            <Mic className="h-5 w-5" />
+            <span className="sr-only">Talk to chatbot</span>
+          </Button>
         </form>
       </footer>
     </div>
   );
 }
+
+    
