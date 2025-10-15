@@ -8,8 +8,6 @@ import {
   query,
   orderBy,
   onSnapshot,
-  updateDoc,
-  doc
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import {
@@ -20,6 +18,8 @@ import {
   LogOut,
   MessageSquare,
   User as UserIcon,
+  Volume2,
+  VolumeX,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,6 +63,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { v4 as uuidv4 } from 'uuid';
+import { textToSpeech } from '@/ai/flows/text-to-speech';
 
 
 export type Message = {
@@ -160,6 +161,8 @@ export default function ChatPage() {
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isClearing, setIsClearing] = useState(false);
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const scrollAreaRef = useRef<HTMLDivElement>(null);
   const { toast } = useToast();
 
@@ -201,6 +204,15 @@ export default function ChatPage() {
     }
   }, [messages]);
 
+  const playAudio = (audioData: string) => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+    }
+    const audio = new Audio(audioData);
+    audio.play();
+    audioRef.current = audio;
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!input.trim() || isLoading || !user) return;
@@ -229,7 +241,7 @@ export default function ChatPage() {
     let finalAnswer = '';
   
     try {
-      const stream = await chatbotAnswersQuestions({ 
+      const stream = chatbotAnswersQuestions({ 
         question: userMessageContent,
         userProfileInfo: user.profileInfo || '',
       });
@@ -255,6 +267,21 @@ export default function ChatPage() {
   
       // Remove the temporary client-side message
       setMessages(currentMessages => currentMessages.filter(msg => msg.id !== assistantMessageId));
+      
+      // Generate and play audio if enabled
+      if (isAudioEnabled && finalAnswer) {
+          try {
+              const { audio } = await textToSpeech(finalAnswer);
+              playAudio(audio);
+          } catch(audioError) {
+              console.error("Audio generation failed:", audioError);
+              toast({
+                  variant: "destructive",
+                  title: "Audio Error",
+                  description: "Could not generate audio for the response.",
+              });
+          }
+      }
   
     } catch (error) {
       console.error("Error getting response:", error);
@@ -297,6 +324,16 @@ export default function ChatPage() {
     }
   };
 
+  const toggleAudio = () => {
+    setIsAudioEnabled(prev => {
+        if (prev && audioRef.current) {
+            audioRef.current.pause();
+            audioRef.current = null;
+        }
+        return !prev;
+    });
+  }
+
   return (
     <div className="flex h-screen w-full flex-col bg-background">
       <header className="flex h-16 shrink-0 items-center justify-between border-b bg-card px-4 md:px-6">
@@ -305,6 +342,10 @@ export default function ChatPage() {
           <span className="font-headline text-lg">M-Health Assistant</span>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="ghost" size="icon" onClick={toggleAudio}>
+            {isAudioEnabled ? <Volume2 className="h-5 w-5" /> : <VolumeX className="h-5 w-5" />}
+            <span className="sr-only">{isAudioEnabled ? 'Disable Audio' : 'Enable Audio'}</span>
+          </Button>
           <UserProfileDialog />
           <AlertDialog>
               <AlertDialogTrigger asChild>
