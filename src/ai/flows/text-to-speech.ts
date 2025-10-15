@@ -7,8 +7,10 @@
 
 import { ai } from '@/ai/genkit';
 import { googleAI } from '@genkit-ai/googleai';
-import { z } from 'genkit';
 import wav from 'wav';
+import { TextToSpeechOutputSchema, type TextToSpeechOutput } from '@/ai/schemas/text-to-speech';
+import { z } from 'genkit';
+
 
 async function toWav(
   pcmData: Buffer,
@@ -36,11 +38,6 @@ async function toWav(
     writer.end();
   });
 }
-
-export const TextToSpeechOutputSchema = z.object({
-  audio: z.string().describe('The base64 encoded audio data.'),
-});
-export type TextToSpeechOutput = z.infer<typeof TextToSpeechOutputSchema>;
 
 export async function textToSpeech(text: string): Promise<TextToSpeechOutput> {
   return textToSpeechFlow(text);
