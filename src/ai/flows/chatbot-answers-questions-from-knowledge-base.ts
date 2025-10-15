@@ -12,7 +12,7 @@ import {z} from 'genkit';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { googleAI } from '@genkit-ai/googleai';
-import { generate, type Part } from 'genkit';
+import { type Part } from 'genkit';
 
 const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
 const KNOWLEDGE_DOCUMENT_ID = 'main_document';
@@ -132,7 +132,7 @@ const chatbotAnswersQuestionsFlow = ai.defineFlow(
         getChatbotModelName()
     ]);
     
-    const {stream, response} = generate({
+    const {stream, response} = ai.generate({
         prompt: prompt,
         model: googleAI.model(modelName),
         input: {
