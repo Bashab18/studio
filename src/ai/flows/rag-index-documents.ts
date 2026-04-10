@@ -12,8 +12,9 @@ import { ai } from '@/ai/genkit';
 import { firestore } from '@/lib/firebase-admin';
 import admin from 'firebase-admin';
 import { chunkText, cosineSimilarity, batchArray } from '@/lib/rag-utils';
+import { COLLECTIONS } from '@/lib/constants';
 
-const CHUNKS_COLLECTION = 'knowledge_chunks';
+const CHUNKS_COLLECTION = COLLECTIONS.KNOWLEDGE_CHUNKS;
 const EMBEDDING_MODEL = 'googleai/text-embedding-004';
 const DEFAULT_TOP_K = 5;
 const FIRESTORE_BATCH_LIMIT = 400; // stay safely below the 500-op Firestore limit

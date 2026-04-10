@@ -3,7 +3,7 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/com
 import { Users, BrainCircuit, BarChart3, Clock, Loader2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffect, useState } from "react";
-import { collection, getDocs, limit, orderBy, query, aggregate, sum, average } from "firebase/firestore";
+import { collection, getDocs, limit, orderBy, query } from "firebase/firestore";
 import { db } from "@/lib/firebase";
 import { formatDistanceToNow } from 'date-fns';
 import { getKnowledgeDocuments, type KnowledgeDocument } from "@/ai/flows/admin-uploads-pdf-knowledge-base";

@@ -17,6 +17,7 @@ import { firestore, storage as adminStorage } from '@/lib/firebase-admin';
 import admin from 'firebase-admin';
 import { googleAI } from '@genkit-ai/googleai';
 import { clearAllChunks, indexDocumentChunks } from '@/ai/flows/rag-index-documents';
+import { COLLECTIONS } from '@/lib/constants';
 
 export type KnowledgeDocument = {
   id: string;
@@ -51,9 +52,9 @@ const RebuildKnowledgeBaseOutputSchema = z.object({
 });
 export type RebuildKnowledgeBaseOutput = z.infer<typeof RebuildKnowledgeBaseOutputSchema>;
 
-const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
+const KNOWLEDGE_COLLECTION = COLLECTIONS.KNOWLEDGE_BASE;
 const KNOWLEDGE_DOCUMENT_ID = 'main_document';
-const DOCUMENTS_COLLECTION = 'production_knowledge_documents';
+const DOCUMENTS_COLLECTION = COLLECTIONS.KNOWLEDGE_DOCUMENTS;
 const STORAGE_BUCKET = 'm-health-jxug7.firebasestorage.app';
 
 export async function adminUploadsPdfKnowledgeBase(

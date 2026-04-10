@@ -57,19 +57,19 @@ const createUserProfile = async (firebaseUser: FirebaseUser, name: string, role:
         throw new Error('Firebase user must have an email address');
       }
 
-      const newUserProfile: Omit<User, 'createdAt' | 'adminNotes' | 'profileInfo'> & {createdAt: any, lastLogin: any, adminNotes: string, profileInfo: string} = {
-          id: firebaseUser.uid,
-          name: name,
-          email: firebaseUser.email,
-          role: role,
-          loginCount: 1,
-          createdAt: serverTimestamp(),
-          lastLogin: serverTimestamp(),
-          adminNotes: '',
-          profileInfo: '',
-      };
-
-      await setDoc(userDocRef, newUserProfile);
+      // Store Firestore FieldValues for timestamp fields
+      const now = new Date().toISOString();
+      await setDoc(userDocRef, {
+        id: firebaseUser.uid,
+        name: name,
+        email: firebaseUser.email,
+        role: role,
+        loginCount: 1,
+        createdAt: serverTimestamp(),
+        lastLogin: serverTimestamp(),
+        adminNotes: '',
+        profileInfo: '',
+      });
 
       const createdProfile = await getUserProfile(firebaseUser.uid);
       if (!createdProfile) {
