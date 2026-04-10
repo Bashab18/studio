@@ -1,8 +1,9 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { collection, query, orderBy, onSnapshot } from 'firebase/firestore';
+import { collection, query, orderBy, onSnapshot, limit } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { Button } from '@/components/ui/button';
 import { type User } from '@/lib/auth';
 import type { Message } from '@/components/chat-page';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
@@ -49,13 +50,15 @@ function ChatHistoryDisplay({ user }: { user: User | null }) {
     const [messages, setMessages] = useState<Message[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const scrollAreaRef = useRef<HTMLDivElement>(null);
+    const MAX_MESSAGES = 500; // Limit to prevent performance issues
 
     useEffect(() => {
         if (user) {
             setIsLoading(true);
             const q = query(
                 collection(db, 'chats', user.id, 'messages'),
-                orderBy('createdAt', 'asc')
+                orderBy('createdAt', 'asc'),
+                limit(MAX_MESSAGES) // Limit for performance
             );
             const unsubscribe = onSnapshot(q, (querySnapshot) => {
                 const newMessages: Message[] = [];
@@ -64,7 +67,8 @@ function ChatHistoryDisplay({ user }: { user: User | null }) {
                 });
                 setMessages(newMessages);
                 setIsLoading(false);
-            }, () => {
+            }, (error) => {
+                console.error('Error loading chat history:', error);
                 setIsLoading(false);
             });
 
@@ -87,7 +91,10 @@ function ChatHistoryDisplay({ user }: { user: User | null }) {
         <Card className="w-full md:w-2/3">
             <CardHeader>
                 <CardTitle>Chat History</CardTitle>
-                <CardDescription>{user ? `Viewing conversation for ${user.name}` : 'Select a user to begin'}</CardDescription>
+                <CardDescription>
+                  {user ? `Viewing conversation for ${user.name}` : 'Select a user to begin'}
+                  {user && messages.length > 0 && ` (${messages.length} messages${messages.length >= MAX_MESSAGES ? ' - limited to most recent' : ''})`}
+                </CardDescription>
             </CardHeader>
             <CardContent>
                 <ScrollArea className="h-[calc(100vh-16rem)] border rounded-lg" ref={scrollAreaRef}>
