@@ -53,10 +53,14 @@ async function getUserProfile(uid: string): Promise<User | null> {
 
 const createUserProfile = async (firebaseUser: FirebaseUser, name: string, role: 'user' | 'admin'): Promise<User> => {
       const userDocRef = doc(db, 'users', firebaseUser.uid);
+      if (!firebaseUser.email) {
+        throw new Error('Firebase user must have an email address');
+      }
+
       const newUserProfile: Omit<User, 'createdAt' | 'adminNotes' | 'profileInfo'> & {createdAt: any, lastLogin: any, adminNotes: string, profileInfo: string} = {
           id: firebaseUser.uid,
           name: name,
-          email: firebaseUser.email!,
+          email: firebaseUser.email,
           role: role,
           loginCount: 1,
           createdAt: serverTimestamp(),
@@ -64,11 +68,14 @@ const createUserProfile = async (firebaseUser: FirebaseUser, name: string, role:
           adminNotes: '',
           profileInfo: '',
       };
-      
+
       await setDoc(userDocRef, newUserProfile);
-      
+
       const createdProfile = await getUserProfile(firebaseUser.uid);
-      return createdProfile!;
+      if (!createdProfile) {
+        throw new Error('Failed to create user profile - profile not found after creation');
+      }
+      return createdProfile;
   }
 
 export function useAuthHook(): UseAuthReturn {
@@ -107,7 +114,7 @@ export function useAuthHook(): UseAuthReturn {
         password
       );
       const firebaseUser = userCredential.user;
-      
+
       const userDocRef = doc(db, 'users', firebaseUser.uid);
       const userDoc = await getDoc(userDocRef);
 
@@ -118,7 +125,11 @@ export function useAuthHook(): UseAuthReturn {
             loginCount: increment(1),
             lastLogin: serverTimestamp()
         });
-        userProfile = (await getUserProfile(firebaseUser.uid))!;
+        const fetchedProfile = await getUserProfile(firebaseUser.uid);
+        if (!fetchedProfile) {
+          throw new Error('Failed to fetch user profile after login');
+        }
+        userProfile = fetchedProfile;
       } else {
          userProfile = await createUserProfile(firebaseUser, firebaseUser.displayName || email.split('@')[0], 'user');
       }
@@ -126,14 +137,17 @@ export function useAuthHook(): UseAuthReturn {
       setUser(userProfile);
       return userProfile;
 
-    } catch (error: any) {
-        if (error.code === 'auth/invalid-credential' || error.code === 'auth/user-not-found' || error.code === 'auth/wrong-password') {
+    } catch (error: unknown) {
+        const errorToThrow = error instanceof Error ? error : new Error(String(error));
+        const errorCode = (error as any)?.code;
+
+        if (errorCode === 'auth/invalid-credential' || errorCode === 'auth/user-not-found' || errorCode === 'auth/wrong-password') {
             throw new Error('Invalid email or password.');
         }
-        if (error.code === 'auth/too-many-requests') {
+        if (errorCode === 'auth/too-many-requests') {
             throw new Error('Too many login attempts. Please try again later.');
         }
-        throw new Error(error.message || 'An unknown error occurred during login.');
+        throw new Error(errorToThrow.message || 'An unknown error occurred during login.');
     }
     finally {
       setLoading(false);
@@ -151,27 +165,37 @@ export function useAuthHook(): UseAuthReturn {
 
       // Create user profile in Firestore
       const userProfile = await createUserProfile(firebaseUser, name, role);
-      
+
       setUser(userProfile);
       return userProfile;
 
-    } catch (error: any)
-{
-      if (error.code === 'auth/email-already-in-use') {
+    } catch (error: unknown) {
+      const errorCode = (error as any)?.code;
+
+      if (errorCode === 'auth/email-already-in-use') {
         throw new Error('This email is already registered. Please sign in or use a different email.');
       }
-      if (error.code === 'auth/weak-password') {
+      if (errorCode === 'auth/weak-password') {
         throw new Error('The password is too weak. Please use at least 6 characters.');
       }
-      throw new Error(error.message || 'An unknown error occurred during sign up.');
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      throw new Error(errorMsg || 'An unknown error occurred during sign up.');
     } finally {
       setLoading(false);
     }
-  }
+  };
 
   const logout = async () => {
-    await signOut(auth);
-    setUser(null);
+    try {
+      await signOut(auth);
+      setUser(null);
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('Logout failed:', errorMsg);
+      // Still clear user state even if logout fails
+      setUser(null);
+      throw new Error(`Logout failed: ${errorMsg}`);
+    }
   };
 
   return { user, loading, login, signUp, logout, refreshUserProfile };

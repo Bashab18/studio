@@ -1,20 +1,40 @@
 import { cn } from '@/lib/utils';
 import { Bot, User } from 'lucide-react';
 import type { Message } from './chat-page';
+import DOMPurify from 'isomorphic-dompurify';
+import { marked } from 'marked';
 
 type ChatMessageProps = {
   message: Message;
 };
 
-// Simple markdown parser for bold and italics
-const parseMarkdown = (text: string) => {
-  const boldRegex = /\*\*(.*?)\*\*/g;
-  const italicRegex = /\*(.*?)\*/g;
-  
-  let html = text.replace(boldRegex, '<strong>$1</strong>');
-  html = html.replace(italicRegex, '<em>$1</em>');
-  
-  return { __html: html };
+// Parse markdown safely using marked + DOMPurify
+const parseMarkdown = (text: string): { __html: string } => {
+  try {
+    // Use marked to parse markdown
+    let html = marked.parse(text, {
+      async: false,
+      breaks: true,
+      gfm: true,
+    }) as string;
+
+    // Sanitize the HTML to remove any potentially dangerous content
+    const sanitized = DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'code', 'pre', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote'],
+      ALLOWED_ATTR: []
+    });
+
+    return { __html: sanitized };
+  } catch (error) {
+    console.error('Error parsing markdown:', error);
+    // Fallback: escape HTML and return as plain text
+    const escaped = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/\n/g, '<br />');
+    return { __html: escaped };
+  }
 };
 
 

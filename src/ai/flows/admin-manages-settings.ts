@@ -13,6 +13,7 @@ import { z } from 'genkit';
 import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { googleAI } from '@genkit-ai/googleai';
+import { LIMITS, VALID_MODELS, DEFAULT_MODEL, isValidModel } from '@/lib/constants';
 
 const SETTINGS_COLLECTION = 'settings';
 const CHATBOT_PERSONA_DOC_ID = 'chatbot_persona';
@@ -65,9 +66,17 @@ const updateChatbotPersonaFlow = ai.defineFlow(
   },
   async (persona) => {
     try {
+      // Validate persona length
+      if (persona && persona.length > LIMITS.CHATBOT_PERSONA_MAX) {
+        return {
+          success: false,
+          message: `Persona exceeds maximum length of ${LIMITS.CHATBOT_PERSONA_MAX} characters.`,
+        };
+      }
+
       const personaDocRef = doc(db, SETTINGS_COLLECTION, CHATBOT_PERSONA_DOC_ID);
       await setDoc(personaDocRef, {
-        persona: persona,
+        persona: persona || '',
         updatedAt: serverTimestamp(),
       }, { merge: true });
 
@@ -75,9 +84,10 @@ const updateChatbotPersonaFlow = ai.defineFlow(
         success: true,
         message: 'Chatbot persona updated successfully.',
       };
-    } catch (error: any) {
-      console.error('Error updating chatbot persona:', error);
-      if (error.code === 'permission-denied') {
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('Error updating chatbot persona:', errorMsg);
+      if (errorMsg.includes('permission-denied')) {
         return {
           success: false,
           message: "Permission Denied. Please grant the 'Cloud Datastore User' role to your App Hosting service account in the Google Cloud IAM console.",
@@ -85,7 +95,7 @@ const updateChatbotPersonaFlow = ai.defineFlow(
       }
       return {
         success: false,
-        message: (error as Error).message || 'Failed to update chatbot persona.',
+        message: errorMsg || 'Failed to update chatbot persona.',
       };
     }
   }
@@ -122,6 +132,14 @@ const updateChatbotModelFlow = ai.defineFlow(
   },
   async (model) => {
     try {
+      // Validate model name
+      if (!model || !isValidModel(model)) {
+        return {
+          success: false,
+          message: `Invalid model. Allowed models are: ${VALID_MODELS.join(', ')}`,
+        };
+      }
+
       const modelDocRef = doc(db, SETTINGS_COLLECTION, CHATBOT_MODEL_DOC_ID);
       await setDoc(modelDocRef, {
         model: model,
@@ -132,9 +150,10 @@ const updateChatbotModelFlow = ai.defineFlow(
         success: true,
         message: 'Chatbot model updated successfully.',
       };
-    } catch (error: any) {
-      console.error('Error updating chatbot model:', error);
-       if (error.code === 'permission-denied') {
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      console.error('Error updating chatbot model:', errorMsg);
+      if (errorMsg.includes('permission-denied')) {
         return {
           success: false,
           message: "Permission Denied. Please grant the 'Cloud Datastore User' role to your App Hosting service account in the Google Cloud IAM console.",
@@ -142,7 +161,7 @@ const updateChatbotModelFlow = ai.defineFlow(
       }
       return {
         success: false,
-        message: (error as Error).message || 'Failed to update chatbot model.',
+        message: errorMsg || 'Failed to update chatbot model.',
       };
     }
   }
@@ -160,14 +179,16 @@ const getChatbotModelFlow = ai.defineFlow(
       const docSnap = await getDoc(modelDocRef);
 
       if (docSnap.exists() && docSnap.data().model) {
-        return { model: docSnap.data().model };
+        const storedModel = docSnap.data().model;
+        // Validate stored model is still valid
+        return { model: isValidModel(storedModel) ? storedModel : DEFAULT_MODEL };
       } else {
-        // Return a default model if not set
-        return { model: 'gemini-2.5-flash' };
+        // Return default model if not set
+        return { model: DEFAULT_MODEL };
       }
     } catch (error) {
       console.error('Error getting chatbot model:', error);
-      return { model: 'gemini-2.5-flash' };
+      return { model: DEFAULT_MODEL };
     }
   }
 );

@@ -2,6 +2,9 @@
 /**
  * @fileOverview Flow for a user to clear their chat history.
  *
+ * Authorization: Firestore security rules restrict access to user's own chat history.
+ * The client SDK enforces these rules at the database level.
+ *
  * - clearChatHistory - A function that deletes all messages for a specific user.
  * - ClearChatHistoryOutput - The return type for the clearChatHistory function.
  */
@@ -29,7 +32,7 @@ const clearChatHistoryFlow = ai.defineFlow(
   },
   async (userId) => {
     try {
-      if (!userId) {
+      if (!userId || !userId.trim()) {
         throw new Error('User ID is required.');
       }
 
@@ -42,8 +45,8 @@ const clearChatHistoryFlow = ai.defineFlow(
       }
 
       const batch = writeBatch(db);
-      querySnapshot.forEach((doc) => {
-        batch.delete(doc.ref);
+      querySnapshot.forEach((docSnapshot) => {
+        batch.delete(docSnapshot.ref);
       });
 
       await batch.commit();
@@ -52,11 +55,21 @@ const clearChatHistoryFlow = ai.defineFlow(
         success: true,
         message: 'Chat history has been successfully cleared.',
       };
-    } catch (error) {
-      console.error('Error clearing chat history:', error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Error clearing chat history:', errorMessage);
+
+      // Handle permission errors from Firestore security rules
+      if (errorMessage.includes('permission') || errorMessage.includes('unauthorized')) {
+        return {
+          success: false,
+          message: 'You are not authorized to delete this chat history.',
+        };
+      }
+
       return {
         success: false,
-        message: 'Failed to clear chat history.',
+        message: errorMessage || 'Failed to clear chat history.',
       };
     }
   }

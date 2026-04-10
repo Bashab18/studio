@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useAuth } from '@/hooks/use-auth';
+import { TIMEOUTS } from '@/lib/constants';
 import { ChatMessage } from './chat-message';
 import {
   DropdownMenu,
@@ -215,25 +216,37 @@ export default function ChatPage() {
     setIsLoading(true);
 
     try {
-      const { answer } = await chatbotAnswersQuestions({ 
+      // Add timeout to prevent hanging requests
+      const timeoutPromise = new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error('Request timeout')), TIMEOUTS.CHATBOT_REQUEST)
+      );
+
+      const { answer } = await Promise.race([
+        chatbotAnswersQuestions({
           question: userMessageContent,
           userProfileInfo: user.profileInfo || '',
-      });
+        }),
+        timeoutPromise,
+      ]);
+
       const assistantMessage: Message = {
         role: 'assistant',
         content: answer,
         createdAt: serverTimestamp(),
       };
       await addDoc(collection(db, 'chats', user.id, 'messages'), assistantMessage);
-    } catch (error) {
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const isTimeout = errorMessage.includes('timeout');
+
       toast({
         variant: 'destructive',
         title: 'Error',
-        description: 'Failed to get a response from the AI.',
+        description: isTimeout ? 'The AI request took too long. Please try again.' : 'Failed to get a response from the AI.',
       });
       const assistantMessage: Message = {
         role: 'assistant',
-        content: "Sorry, I couldn't process your request.",
+        content: isTimeout ? "Sorry, the request took too long. Please try again." : "Sorry, I couldn't process your request.",
         createdAt: serverTimestamp(),
       };
       await addDoc(collection(db, 'chats', user.id, 'messages'), assistantMessage);
