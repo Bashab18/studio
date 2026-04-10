@@ -1,17 +1,18 @@
 'use server';
 /**
- * @fileOverview This flow enables the chatbot to answer questions using an admin-provided knowledge base.
+ * @fileOverview Chatbot flow — answers questions using semantic RAG retrieval.
  *
- * - chatbotAnswersQuestions - A function that accepts a question string and returns an answer string.
- * - ChatbotAnswersQuestionsInput - The input type for the chatbotAnswersQuestions function.
- * - ChatbotAnswersQuestionsOutput - The return type for the chatbotAnswersQuestions function.
+ * - chatbotAnswersQuestions       — Main entry point.
+ * - ChatbotAnswersQuestionsInput  — Input type.
+ * - ChatbotAnswersQuestionsOutput — Output type.
  */
 
-import {ai} from '@/ai/genkit';
-import {z} from 'genkit';
+import { ai } from '@/ai/genkit';
+import { z } from 'genkit';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { googleAI } from '@genkit-ai/googleai';
+import { semanticSearch } from '@/ai/flows/rag-index-documents';
 
 const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
 const KNOWLEDGE_DOCUMENT_ID = 'main_document';
@@ -21,7 +22,7 @@ const CHATBOT_MODEL_DOC_ID = 'chatbot_model';
 
 const ChatbotAnswersQuestionsInputSchema = z.object({
   question: z.string().describe('The question to be answered by the chatbot.'),
-  userProfileInfo: z.string().optional().describe('The user\'s profile information to provide context.'),
+  userProfileInfo: z.string().optional().describe("The user's profile information to provide context."),
 });
 export type ChatbotAnswersQuestionsInput = z.infer<typeof ChatbotAnswersQuestionsInputSchema>;
 
@@ -30,19 +31,23 @@ const ChatbotAnswersQuestionsOutputSchema = z.object({
 });
 export type ChatbotAnswersQuestionsOutput = z.infer<typeof ChatbotAnswersQuestionsOutputSchema>;
 
-export async function chatbotAnswersQuestions(input: ChatbotAnswersQuestionsInput): Promise<ChatbotAnswersQuestionsOutput> {
+export async function chatbotAnswersQuestions(
+  input: ChatbotAnswersQuestionsInput
+): Promise<ChatbotAnswersQuestionsOutput> {
   return chatbotAnswersQuestionsFlow(input);
 }
 
 const prompt = ai.definePrompt({
   name: 'chatbotAnswersQuestionsPrompt',
-  input: {schema: z.object({
-    question: z.string(),
-    knowledgeBase: z.string().optional(),
-    userProfileInfo: z.string().optional(),
-    persona: z.string().optional(),
-  })},
-  output: {schema: ChatbotAnswersQuestionsOutputSchema},
+  input: {
+    schema: z.object({
+      question: z.string(),
+      context: z.string().optional(),
+      userProfileInfo: z.string().optional(),
+      persona: z.string().optional(),
+    }),
+  },
+  output: { schema: ChatbotAnswersQuestionsOutputSchema },
   prompt: `{{#if persona}}
 You MUST adopt the following persona and follow all instructions within it:
 <persona>
@@ -52,67 +57,73 @@ You MUST adopt the following persona and follow all instructions within it:
 You are a helpful chatbot for a service called M-Health. Your purpose is to provide helpful information about health and wellness based on the documents provided by the service administrator.
 {{/if}}
 
-Use the following knowledge base to answer the user's question. Base your answer ONLY on this information. If the answer cannot be found in the knowledge base, you MUST state that you do not have information on that topic and suggest the user consult a healthcare professional. Do not use any external knowledge.
+Use the following knowledge base excerpts to answer the user's question. Base your answer ONLY on this information. If the answer cannot be found in the excerpts, you MUST state that you do not have information on that topic and suggest the user consult a healthcare professional. Do not use any external knowledge.
 
 {{#if userProfileInfo}}
-You should also consider the following information about the user to personalize your answer:
+Consider the following information about the user to personalize your answer:
 ---
 User Profile: {{{userProfileInfo}}}
 ---
 {{/if}}
 
-Knowledge Base:
+Relevant Knowledge Base Excerpts:
 ---
-{{{knowledgeBase}}}
+{{{context}}}
 ---
 
 User's Question: {{{question}}}`,
 });
 
-async function getKnowledgeBaseContent(): Promise<string> {
-    try {
-        const knowledgeDocRef = doc(db, KNOWLEDGE_COLLECTION, KNOWLEDGE_DOCUMENT_ID);
-        const knowledgeDoc = await getDoc(knowledgeDocRef);
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
-        if (knowledgeDoc.exists()) {
-            return knowledgeDoc.data().content || '';
-        }
-        return '';
-    } catch (error) {
-        console.error("Error fetching knowledge base:", error);
-        return '';
+async function getRelevantContext(question: string): Promise<string> {
+  // Semantic search — returns top-k chunks most relevant to the question
+  const chunks = await semanticSearch(question, 5);
+
+  if (chunks.length > 0) {
+    return chunks
+      .map((chunk, i) => `[Excerpt ${i + 1} — ${chunk.fileName}]\n${chunk.content}`)
+      .join('\n\n---\n\n');
+  }
+
+  // Fall back to the monolithic knowledge base if no chunks are indexed yet
+  try {
+    const knowledgeDocRef = doc(db, KNOWLEDGE_COLLECTION, KNOWLEDGE_DOCUMENT_ID);
+    const knowledgeDoc = await getDoc(knowledgeDocRef);
+    if (knowledgeDoc.exists()) {
+      return knowledgeDoc.data().content || '';
     }
+  } catch (error) {
+    console.error('Error fetching fallback knowledge base:', error);
+  }
+  return '';
 }
 
-async function getChatbotPersonaContent(): Promise<string> {
-    try {
-        const personaDocRef = doc(db, SETTINGS_COLLECTION, CHATBOT_PERSONA_DOC_ID);
-        const personaDoc = await getDoc(personaDocRef);
-
-        if (personaDoc.exists()) {
-            return personaDoc.data().persona || '';
-        }
-        return '';
-    } catch (error) {
-        console.error("Error fetching chatbot persona:", error);
-        return '';
-    }
+async function getChatbotPersona(): Promise<string> {
+  try {
+    const docRef = doc(db, SETTINGS_COLLECTION, CHATBOT_PERSONA_DOC_ID);
+    const snap = await getDoc(docRef);
+    return snap.exists() ? snap.data().persona || '' : '';
+  } catch {
+    return '';
+  }
 }
 
-async function getChatbotModelName(): Promise<string> {
-    try {
-        const modelDocRef = doc(db, SETTINGS_COLLECTION, CHATBOT_MODEL_DOC_ID);
-        const modelDoc = await getDoc(modelDocRef);
-
-        if (modelDoc.exists() && modelDoc.data().model) {
-            return modelDoc.data().model;
-        }
-        return 'gemini-2.5-flash'; // Fallback to default
-    } catch (error) {
-        console.error("Error fetching chatbot model:", error);
-        return 'gemini-2.5-flash';
-    }
+async function getChatbotModel(): Promise<string> {
+  try {
+    const docRef = doc(db, SETTINGS_COLLECTION, CHATBOT_MODEL_DOC_ID);
+    const snap = await getDoc(docRef);
+    return snap.exists() && snap.data().model ? snap.data().model : 'gemini-2.5-flash';
+  } catch {
+    return 'gemini-2.5-flash';
+  }
 }
+
+// ---------------------------------------------------------------------------
+// Flow
+// ---------------------------------------------------------------------------
 
 const chatbotAnswersQuestionsFlow = ai.defineFlow(
   {
@@ -121,19 +132,22 @@ const chatbotAnswersQuestionsFlow = ai.defineFlow(
     outputSchema: ChatbotAnswersQuestionsOutputSchema,
   },
   async input => {
-    const [knowledgeBase, persona, modelName] = await Promise.all([
-        getKnowledgeBaseContent(),
-        getChatbotPersonaContent(),
-        getChatbotModelName()
+    const [context, persona, modelName] = await Promise.all([
+      getRelevantContext(input.question),
+      getChatbotPersona(),
+      getChatbotModel(),
     ]);
-    
-    const {output} = await prompt({
+
+    const { output } = await prompt(
+      {
         question: input.question,
         userProfileInfo: input.userProfileInfo,
-        knowledgeBase: knowledgeBase || 'No knowledge base provided.',
+        context: context || 'No knowledge base content available.',
         persona: persona || '',
-    }, { model: googleAI.model(modelName) });
-    
+      },
+      { model: googleAI.model(modelName) }
+    );
+
     return output!;
   }
 );

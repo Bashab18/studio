@@ -16,6 +16,7 @@ import {z} from 'genkit';
 import { firestore, storage as adminStorage } from '@/lib/firebase-admin';
 import admin from 'firebase-admin';
 import { googleAI } from '@genkit-ai/googleai';
+import { clearAllChunks, indexDocumentChunks } from '@/ai/flows/rag-index-documents';
 
 export type KnowledgeDocument = {
   id: string;
@@ -223,6 +224,9 @@ const rebuildKnowledgeBaseFlow = ai.defineFlow(
         return { success: true, message: 'Knowledge base is empty and has been cleared.' };
       }
 
+      // Clear existing chunk index before re-indexing everything
+      await clearAllChunks();
+
       const textExtractionPromises = allDocs.map(async (docInfo) => {
         try {
           const file = bucket.file(docInfo.filePath);
@@ -238,6 +242,11 @@ const rebuildKnowledgeBaseFlow = ai.defineFlow(
           const textContent = await (googleAI as any).extractText({
             media: { data: base64Data, mimeType: 'application/pdf' },
           });
+
+          // Index semantic chunks for this document
+          if (textContent) {
+            await indexDocumentChunks(textContent, docInfo.id, docInfo.fileName);
+          }
 
           return `\n\n--- Content from ${docInfo.fileName} ---\n\n${textContent}`;
         } catch (fetchError) {
