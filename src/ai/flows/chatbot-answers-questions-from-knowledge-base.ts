@@ -9,12 +9,10 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
-import { doc, getDoc } from 'firebase/firestore';
-import { db } from '@/lib/firebase';
+import { firestore } from '@/lib/firebase-admin';
 import { googleAI } from '@genkit-ai/googleai';
 
-const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
-const KNOWLEDGE_DOCUMENT_ID = 'main_document';
+const DOCUMENTS_COLLECTION = 'production_knowledge_documents';
 const SETTINGS_COLLECTION = 'settings';
 const CHATBOT_PERSONA_DOC_ID = 'chatbot_persona';
 const CHATBOT_MODEL_DOC_ID = 'chatbot_model';
@@ -71,26 +69,36 @@ User's Question: {{{question}}}`,
 
 async function getKnowledgeBaseContent(): Promise<string> {
     try {
-        const knowledgeDocRef = doc(db, KNOWLEDGE_COLLECTION, KNOWLEDGE_DOCUMENT_ID);
-        const knowledgeDoc = await getDoc(knowledgeDocRef);
+        const snapshot = await firestore.collection(DOCUMENTS_COLLECTION).get();
+        const parts: string[] = [];
 
-        if (knowledgeDoc.exists()) {
-            return knowledgeDoc.data().content || '';
+        snapshot.docs.forEach(doc => {
+            const data = doc.data();
+            if (data.extractedContent) {
+                parts.push(`\n\n--- Content from ${data.fileName} ---\n\n${data.extractedContent}`);
+            }
+        });
+
+        console.log(`[KB] Fetched ${parts.length}/${snapshot.size} documents with content. Total: ${parts.join('').length} chars.`);
+        if (parts.length === 0) {
+            console.warn('[KB] WARNING: No documents have extracted content. Run a rebuild from the admin panel.');
         }
-        return '';
-    } catch (error) {
-        console.error("Error fetching knowledge base:", error);
+        return parts.join('');
+    } catch (error: any) {
+        console.error("[KB] CRITICAL: Failed to fetch knowledge base from Firestore.");
+        console.error("[KB] Error code:", error?.code);
+        console.error("[KB] Error message:", error?.message);
         return '';
     }
 }
 
 async function getChatbotPersonaContent(): Promise<string> {
     try {
-        const personaDocRef = doc(db, SETTINGS_COLLECTION, CHATBOT_PERSONA_DOC_ID);
-        const personaDoc = await getDoc(personaDocRef);
+        const personaDocRef = firestore.collection(SETTINGS_COLLECTION).doc(CHATBOT_PERSONA_DOC_ID);
+        const personaDoc = await personaDocRef.get();
 
-        if (personaDoc.exists()) {
-            return personaDoc.data().persona || '';
+        if (personaDoc.exists) {
+            return personaDoc.data()?.persona || '';
         }
         return '';
     } catch (error) {
@@ -101,11 +109,11 @@ async function getChatbotPersonaContent(): Promise<string> {
 
 async function getChatbotModelName(): Promise<string> {
     try {
-        const modelDocRef = doc(db, SETTINGS_COLLECTION, CHATBOT_MODEL_DOC_ID);
-        const modelDoc = await getDoc(modelDocRef);
+        const modelDocRef = firestore.collection(SETTINGS_COLLECTION).doc(CHATBOT_MODEL_DOC_ID);
+        const modelDoc = await modelDocRef.get();
 
-        if (modelDoc.exists() && modelDoc.data().model) {
-            return modelDoc.data().model;
+        if (modelDoc.exists && modelDoc.data()?.model) {
+            return modelDoc.data()!.model;
         }
         return 'gemini-2.5-flash'; // Fallback to default
     } catch (error) {

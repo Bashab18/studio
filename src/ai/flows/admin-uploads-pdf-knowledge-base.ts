@@ -3,25 +3,31 @@
  * @fileOverview Flow for admin to upload PDF documents to create a knowledge base for the chatbot.
  *
  * Server-side Firestore and Storage now use Firebase Admin SDK to bypass client security rules.
- * - adminUploadsPdfKnowledgeBase - A function that handles the PDF upload and knowledge base creation process.
- * - AdminUploadsPdfKnowledgeBaseInput - The input type for the adminUploadsPdfKnowledgeBase function.
- * - AdminUploadsPdfKnowledgeBaseOutput - The return type for the adminUploadsPdfKnowledgeBase function.
- * - getKnowledgeDocuments - A function to retrieve all knowledge documents.
- * - deleteKnowledgeDocument - A function to delete a knowledge document.
- * - rebuildKnowledgeBase - A function to manually trigger a rebuild of the entire knowledge base from Storage.
+ * - adminUploadsPdfKnowledgeBase - Uploads PDFs to Storage and extracts content for each.
+ * - extractDocumentContent - Extracts text from a single document using local PDF parsing (no Gemini needed).
+ * - getKnowledgeDocuments - Retrieves all knowledge documents.
+ * - deleteKnowledgeDocument - Deletes a single knowledge document.
  **/
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
 import { firestore, storage as adminStorage } from '@/lib/firebase-admin';
 import admin from 'firebase-admin';
-import { googleAI } from '@genkit-ai/googleai';
+import { readFile } from 'fs/promises';
+import path from 'path';
+// pdf-parse is CJS-only, must use require to avoid ESM default export error
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdfParse = require('pdf-parse');
+
+const LOCAL_PDF_FOLDER = process.env.LOCAL_PDF_FOLDER || '';
 
 export type KnowledgeDocument = {
   id: string;
   fileName: string;
   uploadedAt: { seconds: number; nanoseconds: number } | null;
   filePath: string;
+  extractedContent?: string;
+  extractedAt?: { seconds: number; nanoseconds: number } | null;
 };
 
 const PdfDocumentSchema = z.object({
@@ -44,14 +50,6 @@ const AdminUploadsPdfKnowledgeBaseOutputSchema = z.object({
 });
 export type AdminUploadsPdfKnowledgeBaseOutput = z.infer<typeof AdminUploadsPdfKnowledgeBaseOutputSchema>;
 
-const RebuildKnowledgeBaseOutputSchema = z.object({
-  success: z.boolean(),
-  message: z.string(),
-});
-export type RebuildKnowledgeBaseOutput = z.infer<typeof RebuildKnowledgeBaseOutputSchema>;
-
-const KNOWLEDGE_COLLECTION = 'production_knowledge_base';
-const KNOWLEDGE_DOCUMENT_ID = 'main_document';
 const DOCUMENTS_COLLECTION = 'production_knowledge_documents';
 const STORAGE_BUCKET = 'm-health-jxug7.firebasestorage.app';
 
@@ -73,8 +71,12 @@ export async function getKnowledgeDocuments(): Promise<KnowledgeDocument[]> {
         id: doc.id,
         fileName: data.fileName,
         filePath: data.filePath,
+        extractedContent: data.extractedContent || '',
         uploadedAt: data.uploadedAt
           ? { seconds: data.uploadedAt.seconds, nanoseconds: data.uploadedAt.nanoseconds }
+          : null,
+        extractedAt: data.extractedAt
+          ? { seconds: data.extractedAt.seconds, nanoseconds: data.extractedAt.nanoseconds }
           : null,
       };
     });
@@ -84,12 +86,82 @@ export async function getKnowledgeDocuments(): Promise<KnowledgeDocument[]> {
   }
 }
 
-export async function deleteKnowledgeDocument(docId: string): Promise<{ success: boolean; message: string }> {
-  return deleteKnowledgeDocumentFlow({ docId });
+/**
+ * Extracts text content from a single PDF document and saves it to Firestore.
+ * Designed to be called per-file from the client so each call stays well within
+ * the server action timeout limit.
+ */
+export async function extractDocumentContent(docId: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const docRef = firestore.collection(DOCUMENTS_COLLECTION).doc(docId);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      return { success: false, error: 'Document not found in Firestore.' };
+    }
+
+    const docData = docSnap.data()!;
+    const fileName = docData.fileName as string;
+
+    if (!LOCAL_PDF_FOLDER) {
+      return { success: false, error: 'LOCAL_PDF_FOLDER is not set in .env.local.' };
+    }
+
+    const localFilePath = path.join(LOCAL_PDF_FOLDER, fileName);
+
+    let fileBuffer: Buffer;
+    try {
+      fileBuffer = await readFile(localFilePath);
+    } catch (fsError: any) {
+      console.error(`[KB] Could not read local file for "${fileName}":`, fsError?.message);
+      return { success: false, error: `Local file not found: ${localFilePath}` };
+    }
+
+    const parsed = await pdfParse(fileBuffer);
+    const extractedText = parsed.text?.trim() || '';
+
+    if (!extractedText) {
+      return { success: false, error: `No text could be extracted from "${fileName}". It may be a scanned/image-only PDF.` };
+    }
+
+    await docRef.update({
+      extractedContent: extractedText,
+      extractedAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    console.log(`[KB] Extracted ${extractedText.length} chars from "${fileName}" (local).`);
+    return { success: true };
+  } catch (error: any) {
+    console.error(`[KB] Error extracting content for doc ${docId}:`, error?.message);
+    return { success: false, error: error?.message || 'Unknown error during extraction.' };
+  }
 }
 
-export async function rebuildKnowledgeBase(): Promise<RebuildKnowledgeBaseOutput> {
-  return rebuildKnowledgeBaseFlow({});
+export async function deleteKnowledgeDocument(docId: string): Promise<{ success: boolean; message: string }> {
+  try {
+    const docRef = firestore.collection(DOCUMENTS_COLLECTION).doc(docId);
+    const docSnap = await docRef.get();
+
+    if (!docSnap.exists) {
+      return { success: false, message: 'Document not found.' };
+    }
+
+    const documentData = docSnap.data() as KnowledgeDocument;
+    const file = adminStorage.bucket(STORAGE_BUCKET).file(documentData.filePath);
+    await file.delete();
+    await docRef.delete();
+
+    return { success: true, message: `Document '${documentData.fileName}' deleted.` };
+  } catch (error: any) {
+    console.error('Error deleting document:', error);
+    if (error.code === 403 || (error.message && error.message.includes('permission'))) {
+      return {
+        success: false,
+        message: "Permission Denied. Please grant the 'Storage Admin' role to your App Hosting service account in the Google Cloud IAM console.",
+      };
+    }
+    return { success: false, message: (error as Error).message || 'Failed to delete document.' };
+  }
 }
 
 // Server Flows
@@ -102,9 +174,8 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
   async (input) => {
     try {
       const bucket = adminStorage.bucket(STORAGE_BUCKET);
-      const batch = firestore.batch();
-      
       const uniqueId = Date.now() + '-' + Math.random().toString(36).substring(2);
+      const newDocIds: string[] = [];
 
       for (const document of input.documents) {
         const filePath = `knowledge_base/${uniqueId}_${document.fileName}`;
@@ -116,23 +187,34 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
         await file.save(buffer, { metadata: { contentType: 'application/pdf' } });
 
         const newDocRef = firestore.collection(DOCUMENTS_COLLECTION).doc();
-        batch.set(newDocRef, {
+        await newDocRef.set({
           fileName: document.fileName,
           uploadedAt: admin.firestore.FieldValue.serverTimestamp(),
           filePath,
+          extractedContent: '',
         });
+        newDocIds.push(newDocRef.id);
       }
 
-      await batch.commit();
+      // Extract content for each newly uploaded file in parallel using local PDF parser
+      const extractionResults = await Promise.allSettled(
+        newDocIds.map(docId => extractDocumentContent(docId))
+      );
 
-      const rebuildResult = await rebuildKnowledgeBaseFlow({});
-      if (!rebuildResult.success) {
-        throw new Error(`Knowledge base rebuild failed: ${rebuildResult.message}`);
+      const failed = extractionResults.filter(
+        r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success)
+      ).length;
+
+      if (failed > 0) {
+        return {
+          success: true,
+          message: `${input.documents.length} PDF(s) uploaded. ${failed} file(s) could not be extracted — use "Rebuild" to retry.`,
+        };
       }
 
       return {
         success: true,
-        message: `${input.documents.length} PDF(s) uploaded. Knowledge base is being updated.`,
+        message: `${input.documents.length} PDF(s) uploaded and extracted successfully.`,
       };
     } catch (error: any) {
       console.error('Error processing PDFs:', error);
@@ -142,131 +224,10 @@ const adminUploadsPdfKnowledgeBaseFlow = ai.defineFlow(
           message: "Permission Denied. Please grant the 'Storage Admin' role to your App Hosting service account in the Google Cloud IAM console.",
         };
       }
-      if (error.code === 'permission-denied' || (error.message && error.message.includes('permission-denied'))) {
-        return {
-          success: false,
-          message: "Permission Denied. Please grant the 'Cloud Datastore User' role to your App Hosting service account in the Google Cloud IAM console.",
-        };
-      }
       return {
         success: false,
         message: (error as Error).message || 'Failed to process PDFs.',
       };
-    }
-  }
-);
-
-const deleteKnowledgeDocumentFlow = ai.defineFlow(
-  {
-    name: 'deleteKnowledgeDocumentFlow',
-    inputSchema: z.object({ docId: z.string() }),
-    outputSchema: z.object({ success: z.boolean(), message: z.string() }),
-  },
-  async ({ docId }) => {
-    try {
-      const docRef = firestore.collection(DOCUMENTS_COLLECTION).doc(docId);
-      const docSnap = await docRef.get();
-
-      if (!docSnap.exists) {
-        return { success: false, message: 'Document not found.' };
-      }
-
-      const documentData = docSnap.data() as KnowledgeDocument;
-
-      const file = adminStorage.bucket(STORAGE_BUCKET).file(documentData.filePath);
-      await file.delete();
-
-      await docRef.delete();
-
-      await rebuildKnowledgeBaseFlow({});
-
-      return { success: true, message: `Document '${documentData.fileName}' deleted. Knowledge base is being updated.` };
-    } catch (error: any) {
-      console.error('Error deleting document:', error);
-       if (error.code === 403 || (error.message && error.message.includes('permission'))) {
-        return {
-          success: false,
-          message: "Permission Denied. Please grant the 'Storage Admin' role to your App Hosting service account in the Google Cloud IAM console.",
-        };
-      }
-      if (error.code === 'permission-denied' || (error.message && error.message.includes('permission-denied'))) {
-        return {
-          success: false,
-          message: "Permission Denied. Please grant the 'Cloud Datastore User' role to your App Hosting service account in the Google Cloud IAM console.",
-        };
-      }
-      return { success: false, message: (error as Error).message || 'Failed to delete document.' };
-    }
-  }
-);
-
-const rebuildKnowledgeBaseFlow = ai.defineFlow(
-  {
-    name: 'rebuildKnowledgeBaseFlow',
-    inputSchema: z.object({}),
-    outputSchema: RebuildKnowledgeBaseOutputSchema,
-  },
-  async () => {
-    try {
-      const allDocs = await getKnowledgeDocuments();
-      const bucket = adminStorage.bucket(STORAGE_BUCKET);
-      const knowledgeDocRef = firestore.collection(KNOWLEDGE_COLLECTION).doc(KNOWLEDGE_DOCUMENT_ID);
-
-      if (allDocs.length === 0) {
-        await knowledgeDocRef.set(
-          {
-            content: '',
-            lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-        return { success: true, message: 'Knowledge base is empty and has been cleared.' };
-      }
-
-      const textExtractionPromises = allDocs.map(async (docInfo) => {
-        try {
-          const file = bucket.file(docInfo.filePath);
-          const [exists] = await file.exists();
-          if (!exists) {
-            console.warn(`File ${docInfo.filePath} not found in Storage for rebuild, skipping.`);
-            return '';
-          }
-
-          const [fileBuffer] = await file.download();
-          const base64Data = fileBuffer.toString('base64');
-
-          const textContent = await (googleAI as any).extractText({
-            media: { data: base64Data, mimeType: 'application/pdf' },
-          });
-
-          return `\n\n--- Content from ${docInfo.fileName} ---\n\n${textContent}`;
-        } catch (fetchError) {
-          console.error(`Error processing file ${docInfo.fileName} for rebuild, skipping. Error:`, fetchError);
-          return '';
-        }
-      });
-
-      const allTextContents = await Promise.all(textExtractionPromises);
-      const combinedContent = allTextContents.filter(Boolean).join('');
-
-      await knowledgeDocRef.set(
-        {
-          content: combinedContent,
-          lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
-
-      return { success: true, message: 'Knowledge base rebuilt successfully.' };
-    } catch (error: any) {
-      console.error('Error rebuilding knowledge base:', error);
-       if (error.code === 403 || (error.code === 7) ||(error.message && (error.message.includes('permission') || error.message.includes('denied')))) {
-        return {
-          success: false,
-          message: "Permission Denied. Ensure the App Hosting service account has 'Storage Admin', 'Cloud Datastore User', and 'Service Account Token Creator' roles in the Google Cloud IAM console.",
-        };
-      }
-      return { success: false, message: (error as Error).message || 'Failed to rebuild knowledge base.' };
     }
   }
 );
